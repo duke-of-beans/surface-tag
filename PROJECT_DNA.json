@@ -1,0 +1,22 @@
+{
+  "id": "surface-tag",
+  "name": "Surface Tag",
+  "tier": "tool",
+  "group": "dev",
+  "mission": "Auto-tag Claude messages with device/browser metadata so Claude can detect which surface David is on and adapt behavior accordingly.",
+  "holdco": "Silent Ampersand LLC",
+  "status": "active",
+  "created": "2026-08-07",
+  "relationships": {
+    "depends_on": ["claude-desktop", "claude-web"],
+    "consumed_by": ["bootstrap-context-os"]
+  },
+  "tech_stack": {
+    "type": "browser-extension",
+    "manifest": "v3",
+    "browsers": ["brave", "chrome", "edge", "firefox"],
+    "language": "javascript"
+  },
+  "repo": "https://github.com/duke-of-beans/surface-tag",
+  "local_path": "D:\\Dev\\surface-tag"
+}
