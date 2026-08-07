@@ -1,0 +1,32 @@
+{
+  "manifest_version": 3,
+  "name": "Surface Tag",
+  "version": "1.2.0",
+  "description": "Auto-tags Claude messages with device/browser metadata for surface-aware conversations.",
+  "permissions": ["storage", "declarativeNetRequest"],
+  "host_permissions": ["https://claude.ai/*"],
+  "declarative_net_request": {
+    "rule_resources": [{
+      "id": "surface_tag_rules",
+      "enabled": true,
+      "path": "rules.json"
+    }]
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://claude.ai/*"],
+      "js": ["intercept.js"],
+      "run_at": "document_start",
+      "world": "MAIN"
+    },
+    {
+      "matches": ["https://claude.ai/*"],
+      "js": ["bridge.js"],
+      "run_at": "document_start",
+      "world": "ISOLATED"
+    }
+  ],
+  "action": {
+    "default_popup": "popup.html"
+  }
+}
