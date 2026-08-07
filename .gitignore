@@ -1,0 +1,6 @@
+.DS_Store
+*.log
+*.crx
+*.pem
+*.zip
+web-ext-artifacts/
