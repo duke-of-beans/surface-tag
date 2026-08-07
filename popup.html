@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    width: 260px;
+    padding: 20px;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+    font-size: 13px;
+    color: #1a1a1a;
+    background: #fafafa;
+  }
+
+  h1 {
+    font-size: 15px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    margin-bottom: 16px;
+  }
+
+  h1 span {
+    color: #888;
+    font-weight: 400;
+  }
+
+  label {
+    display: block;
+    font-size: 11px;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: #666;
+    margin-bottom: 4px;
+  }
+
+  input {
+    width: 100%;
+    padding: 7px 10px;
+    font-size: 13px;
+    font-family: 'SF Mono', 'Cascadia Code', 'Consolas', monospace;
+    border: 1px solid #d0d0d0;
+    border-radius: 4px;
+    background: #fff;
+    outline: none;
+    transition: border-color 0.15s;
+  }
+
+  input:focus {
+    border-color: #666;
+  }
+
+  input::placeholder {
+    color: #bbb;
+    font-family: -apple-system, system-ui, sans-serif;
+    font-style: italic;
+  }
+
+  .field + .field {
+    margin-top: 12px;
+  }
+
+  button {
+    display: block;
+    width: 100%;
+    margin-top: 16px;
+    padding: 8px;
+    font-size: 13px;
+    font-weight: 500;
+    color: #fff;
+    background: #1a1a1a;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+
+  button:hover { background: #333; }
+  button:active { background: #000; }
+
+  .preview {
+    margin-top: 14px;
+    padding: 10px;
+    background: #f0f0f0;
+    border-radius: 4px;
+    text-align: center;
+    font-family: 'SF Mono', 'Cascadia Code', 'Consolas', monospace;
+    font-size: 14px;
+    letter-spacing: 0.02em;
+    color: #333;
+    min-height: 20px;
+  }
+
+  .status {
+    margin-top: 8px;
+    font-size: 11px;
+    color: #888;
+    text-align: center;
+    min-height: 16px;
+  }
+</style>
+</head>
+<body>
+
+  <h1>Surface Tag <span>v1.0</span></h1>
+
+  <div class="field">
+    <label>Machine</label>
+    <input id="machine" placeholder="g7, m3, pixel…" spellcheck="false" autocomplete="off">
+  </div>
+
+  <div class="field">
+    <label>Browser</label>
+    <input id="browserName" placeholder="brave, firefox, chrome…" spellcheck="false" autocomplete="off">
+  </div>
+
+  <button id="save">Save</button>
+
+  <div class="preview" id="preview"></div>
+  <div class="status" id="status"></div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
