@@ -100,26 +100,36 @@
     text-align: center;
     min-height: 16px;
   }
+
+  .source {
+    margin-top: 14px;
+    padding-top: 10px;
+    border-top: 1px solid #e0e0e0;
+    font-size: 11px;
+    color: #aaa;
+    text-align: center;
+  }
 </style>
 </head>
 <body>
 
-  <h1>Surface Tag <span>v1.0</span></h1>
+  <h1>Surface Tag <span>v3.0</span></h1>
 
   <div class="field">
     <label>Machine</label>
-    <input id="machine" placeholder="g7, m3, pixel…" spellcheck="false" autocomplete="off">
+    <input id="machine" placeholder="g7, m3, pixel\u2026" spellcheck="false" autocomplete="off">
   </div>
 
   <div class="field">
     <label>Browser</label>
-    <input id="browserName" placeholder="brave, firefox, chrome…" spellcheck="false" autocomplete="off">
+    <input id="browserName" placeholder="brave, firefox, chrome\u2026" spellcheck="false" autocomplete="off">
   </div>
 
   <button id="save">Save</button>
 
   <div class="preview" id="preview"></div>
   <div class="status" id="status"></div>
+  <div class="source" id="source"></div>
 
   <script src="popup.js"></script>
 </body>
