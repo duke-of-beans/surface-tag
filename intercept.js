@@ -1,7 +1,13 @@
 /**
- * Surface Tag — intercept.js (v1.2)
+ * Surface Tag — intercept.js (v2.0)
  * MAIN world, document_start.
  * Overrides fetch, tags outgoing user messages.
+ *
+ * Handles modern fetch patterns:
+ *   - fetch(url, {body: string})
+ *   - fetch(url, {body: Blob/ArrayBuffer})
+ *   - fetch(Request) with no init
+ *   - Mixed: fetch(Request, init)
  */
 
 (function() {
@@ -20,19 +26,70 @@
   console.log('[Surface Tag] Intercept installed, waiting for config...');
 
   window.fetch = function(input, init) {
-    // Normalize: handle Request objects and missing init
-    var method = (init && init.method) ? init.method : 'GET';
-    var body = (init && init.body) ? init.body : null;
+    if (!_tag) return _fetch.apply(this, arguments);
 
-    if (!_tag || method.toUpperCase() !== 'POST' || typeof body !== 'string') {
+    // Normalize method and body from either Request object or init
+    var method, body, url;
+
+    if (input instanceof Request) {
+      method = (init && init.method) || input.method;
+      url = input.url;
+      // If init has a body, use it; otherwise we need to clone the Request
+      if (init && typeof init.body === 'string') {
+        body = init.body;
+      } else if (init && init.body) {
+        // Non-string body in init — can't parse, pass through
+        return _fetch.apply(this, arguments);
+      } else {
+        // Body is on the Request object — clone and read it
+        // But Request.body is a ReadableStream, reading is async
+        // Use the sync approach: clone, read via text(), rebuild
+        var cloned = input.clone();
+        return cloned.text().then(function(bodyText) {
+          var result = tagBody(bodyText);
+          if (result.tagged) {
+            var newInit = Object.assign({}, init || {}, {
+              method: method,
+              body: result.body,
+              headers: new Headers(init && init.headers || input.headers)
+            });
+            // Preserve all original headers
+            if (!(init && init.headers)) {
+              input.headers.forEach(function(v, k) {
+                newInit.headers.set(k, v);
+              });
+            }
+            return _fetch.call(this, url, newInit);
+          }
+          return _fetch.call(this, input, init);
+        }.bind(this));
+      }
+    } else {
+      method = (init && init.method) || 'GET';
+      url = input;
+      body = (init && init.body) || null;
+    }
+
+    if (method.toUpperCase() !== 'POST' || typeof body !== 'string') {
       return _fetch.apply(this, arguments);
     }
 
+    var result = tagBody(body);
+    if (result.tagged) {
+      return _fetch.call(this, input, Object.assign({}, init, {
+        body: result.body
+      }));
+    }
+
+    return _fetch.apply(this, arguments);
+  };
+
+  function tagBody(bodyStr) {
     try {
-      var parsed = JSON.parse(body);
+      var parsed = JSON.parse(bodyStr);
       var tagged = false;
 
-      // Format A: messages array
+      // Format A: messages array (API format)
       if (Array.isArray(parsed.messages)) {
         for (var i = parsed.messages.length - 1; i >= 0; i--) {
           var msg = parsed.messages[i];
@@ -54,7 +111,7 @@
         }
       }
 
-      // Format B: direct prompt
+      // Format B: prompt field (claude.ai web app format)
       if (!tagged && typeof parsed.prompt === 'string' && !parsed.prompt.startsWith(_tag)) {
         parsed.prompt = _tag + ' ' + parsed.prompt;
         tagged = true;
@@ -62,14 +119,12 @@
 
       if (tagged) {
         console.log('[Surface Tag] Message tagged');
-        return _fetch.call(this, input, Object.assign({}, init, {
-          body: JSON.stringify(parsed)
-        }));
+        return { tagged: true, body: JSON.stringify(parsed) };
       }
     } catch(e) {
-      // Not JSON — pass through
+      // Not JSON
     }
 
-    return _fetch.apply(this, arguments);
-  };
+    return { tagged: false, body: bodyStr };
+  }
 })();
