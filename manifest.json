@@ -1,7 +1,7 @@
 {
   "name": "Surface Tag",
   "description": "Auto tags messages on claude.ai with device/browser metadata",
-  "version": "1.1",
+  "version": "3.0",
   "manifest_version": 3,
   "permissions": [
     "storage",
