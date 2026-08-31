@@ -1,6 +1,12 @@
 /**
- * Surface Tag — intercept.js (v2.1 — diagnostic build)
+ * Surface Tag — intercept.js (v2.2)
  * MAIN world, document_start.
+ *
+ * Handles all fetch body types:
+ *   - string (JSON.stringify'd by caller)
+ *   - plain object (not yet stringified — claude.ai does this)
+ *   - Blob / ReadableStream (async read)
+ *   - Request objects
  */
 
 (function() {
@@ -16,48 +22,78 @@
     }
   });
 
-  console.log('[Surface Tag] v2.1 intercept installed');
+  console.log('[Surface Tag] v2.2 intercept installed');
 
   window.fetch = function(input, init) {
-    // Log every fetch to see what we're catching
+    if (!_tag) return _fetch.apply(this, arguments);
+
     var isRequest = input instanceof Request;
     var method = isRequest ? input.method : ((init && init.method) || 'GET');
-    var url = isRequest ? input.url : (typeof input === 'string' ? input : '');
 
-    // Only log POST requests to reduce noise
-    if (method.toUpperCase() === 'POST') {
-      var bodySource = 'none';
-      if (init && init.body) bodySource = 'init.body (' + typeof init.body + ')';
-      else if (isRequest) bodySource = 'Request.body';
-      console.log('[Surface Tag] POST intercepted:', url.substring(0, 80), '| body from:', bodySource, '| tag:', _tag ? 'set' : 'NOT SET');
-    }
-
-    if (!_tag) return _fetch.apply(this, arguments);
     if (method.toUpperCase() !== 'POST') return _fetch.apply(this, arguments);
 
-    // Try init.body first (most common for fetch(url, {method, body}))
-    if (init && typeof init.body === 'string') {
-      var result = tagBody(init.body);
+    var body = (init && init.body !== undefined) ? init.body : null;
+
+    // Case 1: string body
+    if (typeof body === 'string') {
+      var result = tagBody(body);
       if (result.tagged) {
         return _fetch.call(this, input, Object.assign({}, init, { body: result.body }));
       }
       return _fetch.apply(this, arguments);
     }
 
-    // If input is Request, clone and read body
-    if (isRequest) {
-      var cloned = input.clone();
-      return cloned.text().then(function(bodyText) {
-        console.log('[Surface Tag] Request body read, length:', bodyText.length, 'preview:', bodyText.substring(0, 100));
+    // Case 2: plain object body (claude.ai passes unserialized objects)
+    if (body && typeof body === 'object' && !(body instanceof Blob) &&
+        !(body instanceof ArrayBuffer) && !(body instanceof FormData) &&
+        !(body instanceof URLSearchParams) && !(body instanceof ReadableStream)) {
+      // It's a plain JS object — tag it directly, then stringify
+      var tagged = false;
+      if (typeof body.prompt === 'string' && !body.prompt.startsWith(_tag)) {
+        body.prompt = _tag + ' ' + body.prompt;
+        tagged = true;
+      }
+      if (!tagged && Array.isArray(body.messages)) {
+        for (var i = body.messages.length - 1; i >= 0; i--) {
+          var msg = body.messages[i];
+          if (msg.role === 'user' || msg.role === 'human') {
+            if (typeof msg.content === 'string' && !msg.content.startsWith(_tag)) {
+              msg.content = _tag + ' ' + msg.content;
+              tagged = true;
+            }
+            break;
+          }
+        }
+      }
+      if (tagged) {
+        console.log('[Surface Tag] *** MESSAGE TAGGED (object body) ***');
+        // Pass modified object back — let the downstream serializer handle it
+        return _fetch.apply(this, arguments);
+      }
+      return _fetch.apply(this, arguments);
+    }
+
+    // Case 3: Blob body
+    if (body instanceof Blob) {
+      return body.text().then(function(bodyText) {
         var result = tagBody(bodyText);
         if (result.tagged) {
-          // Rebuild the request with tagged body
-          var newReq = new Request(input, { body: result.body });
-          return _fetch.call(this, newReq);
+          return _fetch.call(this, input, Object.assign({}, init, {
+            body: new Blob([result.body], { type: body.type })
+          }));
         }
         return _fetch.call(this, input, init);
-      }.bind(this)).catch(function(err) {
-        console.warn('[Surface Tag] Request body read failed:', err);
+      }.bind(this));
+    }
+
+    // Case 4: Request object with no init body
+    if (isRequest && !body) {
+      var cloned = input.clone();
+      return cloned.text().then(function(bodyText) {
+        var result = tagBody(bodyText);
+        if (result.tagged) {
+          return _fetch.call(this, new Request(input, { body: result.body }));
+        }
         return _fetch.call(this, input, init);
       }.bind(this));
     }
@@ -68,14 +104,9 @@
   function tagBody(bodyStr) {
     try {
       var parsed = JSON.parse(bodyStr);
-      var keys = Object.keys(parsed);
-      console.log('[Surface Tag] Parsed body keys:', keys.join(', '));
-
       var tagged = false;
 
-      // Format A: messages array
       if (Array.isArray(parsed.messages)) {
-        console.log('[Surface Tag] Found messages array, length:', parsed.messages.length);
         for (var i = parsed.messages.length - 1; i >= 0; i--) {
           var msg = parsed.messages[i];
           if (msg.role === 'user' || msg.role === 'human') {
@@ -94,24 +125,16 @@
         }
       }
 
-      // Format B: prompt field
-      if (!tagged && typeof parsed.prompt === 'string') {
-        console.log('[Surface Tag] Found prompt field:', JSON.stringify(parsed.prompt).substring(0, 50));
-        if (!parsed.prompt.startsWith(_tag)) {
-          parsed.prompt = _tag + ' ' + parsed.prompt;
-          tagged = true;
-        }
+      if (!tagged && typeof parsed.prompt === 'string' && !parsed.prompt.startsWith(_tag)) {
+        parsed.prompt = _tag + ' ' + parsed.prompt;
+        tagged = true;
       }
 
       if (tagged) {
-        console.log('[Surface Tag] *** MESSAGE TAGGED ***');
+        console.log('[Surface Tag] *** MESSAGE TAGGED (string body) ***');
         return { tagged: true, body: JSON.stringify(parsed) };
-      } else {
-        console.log('[Surface Tag] Body parsed but no taggable field found');
       }
-    } catch(e) {
-      console.log('[Surface Tag] Body parse failed:', e.message);
-    }
+    } catch(e) {}
 
     return { tagged: false, body: bodyStr };
   }
