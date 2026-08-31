@@ -1,15 +1,34 @@
 {
   "name": "Surface Tag",
   "description": "Auto tags messages on claude.ai with device/browser metadata",
-  "version": "1.0",
+  "version": "1.1",
   "manifest_version": 3,
-  "permissions": ["storage"],
-  "host_permissions": ["https://claude.ai/*"],
+  "permissions": [
+    "storage"
+  ],
+  "host_permissions": [
+    "https://claude.ai/*"
+  ],
   "content_scripts": [
     {
-      "matches": ["https://claude.ai/*"],
-      "js": ["bridge.js", "intercept.js"],
-      "run_at": "document_start"
+      "matches": [
+        "https://claude.ai/*"
+      ],
+      "js": [
+        "bridge.js"
+      ],
+      "run_at": "document_start",
+      "world": "ISOLATED"
+    },
+    {
+      "matches": [
+        "https://claude.ai/*"
+      ],
+      "js": [
+        "intercept.js"
+      ],
+      "run_at": "document_start",
+      "world": "MAIN"
     }
   ],
   "declarative_net_request": {
