@@ -1,6 +1,20 @@
 /**
- * Surface Tag — intercept.js (v2.5)
+ * Surface Tag — intercept.js (v3.0.0)
  * MAIN world, document_start.
+ *
+ * Overrides window.fetch to prepend a surface tag (e.g. ⌁g7.brave)
+ * to outgoing messages on claude.ai.
+ *
+ * Body type handling (claude.ai sends Uint8Array as of Aug 2026):
+ *   - string: direct JSON parse
+ *   - Uint8Array / typed array: TextDecoder → JSON parse (cross-realm via ArrayBuffer.isView)
+ *   - ArrayBuffer: wrap in Uint8Array → decode
+ *   - Blob: async .text() → JSON parse
+ *   - Request object with no init: clone → .text() → JSON parse
+ *
+ * Tagged fields:
+ *   - prompt (claude.ai web format)
+ *   - messages[last user].content (API format)
  */
 
 (function() {
@@ -8,15 +22,13 @@
 
   var _fetch = window.fetch;
   var _tag = null;
+  var _tagCount = 0;
 
   window.addEventListener('message', function(e) {
     if (e.source === window && e.data && e.data.type === '__SURFACE_TAG') {
       _tag = e.data.tag;
-      console.log('[Surface Tag] Config received:', _tag);
     }
   });
-
-  console.log('[Surface Tag] v2.5 intercept installed');
 
   window.fetch = function(input, init) {
     if (!_tag) return _fetch.apply(this, arguments);
@@ -26,78 +38,99 @@
     if (method.toUpperCase() !== 'POST') return _fetch.apply(this, arguments);
 
     var body = (init && init.body !== undefined) ? init.body : null;
-    if (!body) return _fetch.apply(this, arguments);
+    if (!body && !isRequest) return _fetch.apply(this, arguments);
 
-    // Decode body to string regardless of type
-    var bodyStr = null;
-
+    // Decode body to string
     if (typeof body === 'string') {
-      bodyStr = body;
-    } else if (ArrayBuffer.isView(body)) {
-      // Uint8Array, Int8Array, DataView, etc. — cross-realm safe
-      bodyStr = new TextDecoder().decode(body);
-    } else if (body instanceof ArrayBuffer) {
-      bodyStr = new TextDecoder().decode(new Uint8Array(body));
-    } else if (body instanceof Blob) {
-      // Async path
-      return body.text().then(function(text) {
-        return handleTag(text, input, init, 'blob');
-      }.bind(this));
-    } else {
-      // Unknown type — log and pass through
-      console.log('[Surface Tag] Unknown body type:', typeof body, body && body.constructor ? body.constructor.name : '?');
-      return _fetch.apply(this, arguments);
+      return syncTag.call(this, body, input, init, 'string');
     }
 
-    if (bodyStr) {
-      return handleTag.call(this, bodyStr, input, init, typeof body === 'string' ? 'string' : 'binary');
+    if (ArrayBuffer.isView(body)) {
+      return syncTag.call(this, new TextDecoder().decode(body), input, init, 'binary');
+    }
+
+    if (body instanceof ArrayBuffer) {
+      return syncTag.call(this, new TextDecoder().decode(new Uint8Array(body)), input, init, 'binary');
+    }
+
+    if (body instanceof Blob) {
+      return body.text().then(function(text) {
+        return asyncTag.call(this, text, input, init, 'blob');
+      }.bind(this));
+    }
+
+    // Request object with body on the Request, not in init
+    if (isRequest && !body) {
+      var cloned = input.clone();
+      return cloned.text().then(function(text) {
+        return asyncTag.call(this, text, input, init, 'request');
+      }.bind(this));
     }
 
     return _fetch.apply(this, arguments);
   };
 
-  function handleTag(bodyStr, input, init, source) {
+  function tryTag(bodyStr) {
     try {
       var parsed = JSON.parse(bodyStr);
-      var tagged = false;
 
-      // Check messages array
+      // claude.ai web: prompt field
+      if (typeof parsed.prompt === 'string' && parsed.prompt !== '' && !parsed.prompt.startsWith(_tag)) {
+        parsed.prompt = _tag + ' ' + parsed.prompt;
+        _tagCount++;
+        console.log('[Surface Tag] Tagged message #' + _tagCount);
+        return JSON.stringify(parsed);
+      }
+
+      // API format: messages array
       if (Array.isArray(parsed.messages)) {
         for (var i = parsed.messages.length - 1; i >= 0; i--) {
           var msg = parsed.messages[i];
           if (msg.role === 'user' || msg.role === 'human') {
             if (typeof msg.content === 'string' && !msg.content.startsWith(_tag)) {
               msg.content = _tag + ' ' + msg.content;
-              tagged = true;
+              _tagCount++;
+              console.log('[Surface Tag] Tagged message #' + _tagCount);
+              return JSON.stringify(parsed);
+            } else if (Array.isArray(msg.content)) {
+              var tb = msg.content.find(function(b) { return b.type === 'text'; });
+              if (tb && typeof tb.text === 'string' && !tb.text.startsWith(_tag)) {
+                tb.text = _tag + ' ' + tb.text;
+                _tagCount++;
+                console.log('[Surface Tag] Tagged message #' + _tagCount);
+                return JSON.stringify(parsed);
+              }
             }
             break;
           }
         }
       }
-
-      // Check prompt field
-      if (!tagged && typeof parsed.prompt === 'string' && !parsed.prompt.startsWith(_tag)) {
-        parsed.prompt = _tag + ' ' + parsed.prompt;
-        tagged = true;
-      }
-
-      if (tagged) {
-        var newBody = JSON.stringify(parsed);
-        console.log('[Surface Tag] *** TAGGED (' + source + ') ***');
-
-        // Re-encode to match original body type
-        if (source === 'binary') {
-          newBody = new TextEncoder().encode(newBody);
-        } else if (source === 'blob') {
-          newBody = new Blob([newBody], { type: 'application/json' });
-        }
-
-        return _fetch.call(this, input, Object.assign({}, init, { body: newBody }));
-      }
     } catch(e) {
-      console.log('[Surface Tag] Parse error:', e.message, '| preview:', bodyStr.substring(0, 80));
+      // Not JSON — ignore silently
     }
+    return null;
+  }
 
+  function syncTag(bodyStr, input, init, source) {
+    var tagged = tryTag(bodyStr);
+    if (tagged) {
+      var newBody = source === 'binary' ? new TextEncoder().encode(tagged) : tagged;
+      return _fetch.call(this, input, Object.assign({}, init, { body: newBody }));
+    }
+    return _fetch.call(this, input, init);
+  }
+
+  function asyncTag(bodyStr, input, init, source) {
+    var tagged = tryTag(bodyStr);
+    if (tagged) {
+      var newBody = source === 'blob'
+        ? new Blob([tagged], { type: 'application/json' })
+        : tagged;
+      if (source === 'request') {
+        return _fetch.call(this, new Request(input, { body: newBody }));
+      }
+      return _fetch.call(this, input, Object.assign({}, init, { body: newBody }));
+    }
     return _fetch.call(this, input, init);
   }
 })();
